@@ -1,0 +1,136 @@
+#+TITLE: Supervisor Overview
+#+DATE: [2020-05-30 Sat 11:41]
+
+* High Level Concepts
+** Supervisor Duties
+   - Running scripts with optional environment variable settings.
+   - Starting daemon processes and monitoring their status.
+   - Monitoring daemons and processes running event actions on state changes.
+
+*** Features to explore (not all may make it)
+    - [ ] Utilize freebsd's init_exec to replace init (kernel environment via bootloader)
+      - [ ] If so, import FreeBSD's init into archon, and modify it slightly (runcom = Archon +rc)
+    - [ ] Static Dependencies for startup
+    - [ ] Static Dependencies for shutdown
+    - [ ] Rebooting
+    - [ ] Dynamic dependency registration (describe graphs of processes to watch and react to)
+    - [ ] Monitor processes not started by Supervisor nor using procdescs
+      - [ ] If we become init, all processes are descendants.
+    - [ ] Network port allocation
+      - [ ] Services can compete for ports. Pre-allocate them, and divvy out?
+    - [ ] Dump process tree and known status
+    - [ ] Dump configuration
+    - [ ] Configuration change refresh
+    - [ ] Stop Daemon
+    - [ ] File change watching/actions (consider patching libraries on a live system, how to restart things?)
+
+
+** Client Protocol (rename this?)
+   Clients can connect to the Supervisor over the unix domain socket and send requests.
+   
+   All requests and replies are ASCII formatted, CSV strings terminated by a newline.
+
+   All requests have replies.
+
+*** Requests
+    The sections below contain the Request synopsis along with the replies that are possible
+    separated by the '|' character.
+**** Run,<args>,<env> -> ExitStatus
+     Run,<args>,key1=val1,key2=val2,...keyN=valN
+
+     The supervisor runs the command as per the <args> parameter, with the environment
+     variables if provided.
+
+     The Supervisor will reply with an ExitStatus once the command completes.
+
+**** StartDaemon,<args>,<env> -> Ok|Error
+     StartDaemon,<args>,key1=val1,key2=val2,...keyN=ValN
+    
+     The Supervisor will fork and exec "Args" with the provided environment variable list
+     as the key value pairs.
+
+     The Supervisor will not wait for the command to exit before responding. The
+     Supervisor will, however, monitor the process and run the associated script upon
+     termination. (See the process monitoring section).
+
+**** MonitorFD -> Ok|Error
+     This command is used to tell the Supervisor to watch the process represented by
+     the procdesc (FD from pdfork(2)) sent as ancillary data with this request.
+
+*** Replies
+**** Ok
+     A positive acknowledgement that the command was executed as requested without error.
+**** Error,<string reason>
+     A negative acknowledgement that includes a human readble reason for the failure.
+**** ExitStatus,<code>
+     ExitStatus is neither positive nor negative, but carries the result code of the Run
+     request. The code is an ASCII exit code number
+
+** Service Monitoring
+   TBD, pattern matching via Lua with Lua actions.
+
+* Editor configuration
+  All source code has a mode line at the top for emacs currently only.
+  Adding in equivalent VIM lines is acceptable, but I don't use VIM so,
+  you're on your own here.
+** Emacs
+   I like indentation based on Stroustrup style, but I could be convinced otherwise
+   if it gets in the way of folks wanting to use Vim or something else.
+
+   The "archon-cc-mode" is just this:
+
+#+BEGIN_SRC emacs-lisp
+(defconst archon-cc-style
+  '("cc-mode"
+    (c-offsets-alist . ((innamespace . [0])))))
+
+(c-add-style "archon-cc-mode" my-cc-style)
+#+END_SRC
+   I assume if you're using emacs, you know where to put that.
+
+** Vim
+   Help Wanted.
+
+
+* Implementation Details
+  C++17 (20 when available most likely), can be used throughout.
+  
+  These style guidelines are based on the Google Zircon kernel rules, with a
+  few changes.
+
+** C compatibility for libraries (Hermetic C++)
+   C++ is only allowed to be used for the implementation of Archon's core functional parts.
+   Any library interfaces can use C++ as well, but must do so "hermetically". That
+   means shared libraries *must* have a pure C API and ABI. No C++-only constructs
+   may leak into shared library implementations.
+
+** Forbidden
+   - exceptions (variant-based error handling instead, allocation failure crashes)
+   - RTTI or dynamic_cast
+   - operator overloading
+   - Virtual Inheritance
+   - statically constructed objects
+   - trailing return type syntax, unless needed for unutterable lambda return types
+
+** Explicitly Allowed
+   - pure interfaces (aka abstract base classes with no default implementations)
+   - lambdas
+   - constexpr
+   - nullptr
+   - enum classes
+   - templates (how to do code coverage?)
+   - default parmaters (judiciously)
+   - auto
+   - thread_local
+   - initializer lists    
+
+
+
+
+
+
+* Crazy "bind" hack idea
+  LD_PRELOAD a library that rewrites bind to do the following:
+  1. Close the socket being bound to.
+  2. Communicate with Archon to get a pre-bound socket, IFF our process matches the rules. (Unix domain socket FD passing)
+  3. Received FD *Should* be the lowest un-used FD number.
