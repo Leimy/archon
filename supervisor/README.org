@@ -1,5 +1,44 @@
 #+TITLE: Supervisor Overview
-#+DATE: [2020-05-30 Sat 11:41]
+#+DATE: [2020-05-30 Sat 16:27]
+
+* Current Status
+** Forked init to archon_init
+   This is init, including init's Makefile (DO NOT "make install!!!"), hacked slightly
+   so that FreeBSD's init can be made to exec archon_init. archon_init lets you use a kernel
+   environment variable to run an alternate "runcom" (rc). My intention is to load the archon
+   supervisor, and have it run RC as a passthrough, with the same options as init. Before that,
+   it will register itself as the process reaper (procctl), so that all processes, other than
+   init, are its descendants.
+
+   This will allow me to monitor essentially everything, and collect exit statuses for processes
+   using EVFILT_PROC. Being able to match program information from sysctl's to trigger event actions
+   based on matches.
+
+   As for where to go after that? I'm not sure. I'd like to have some concept of runlevels/profiles
+   where services can be started and stopped in groups.
+
+   Also, if you're still just using RC for service management, don't do anything differently, archon
+   won't either.
+*** Try it out (requires FreeBSD with "init_exec" support)
+#+BEGIN_SRC shell
+cd archon/init
+make
+reboot
+#+END_SRC
+
+Get a boot prompt
+
+#+BEGIN_SRC shell
+set init_exec=<path_to_your_archon_checkout>/init/archon_init
+#+END_SRC
+
+You should notice NOTHING DIFFERENT so far, which is success!
+
+Check out pid 1 though.
+
+#+BEGIN_SRC
+  1 u0- ILs  0:00.02 /usr/home/dave/work/archon/init/archon_init
+#+END_SRC
 
 * High Level Concepts
 ** Supervisor Duties
@@ -91,13 +130,11 @@
 ** Vim
    Help Wanted.
 
-
 * Implementation Details
   C++17 (20 when available most likely), can be used throughout.
   
   These style guidelines are based on the Google Zircon kernel rules, with a
   few changes.
-
 ** C compatibility for libraries (Hermetic C++)
    C++ is only allowed to be used for the implementation of Archon's core functional parts.
    Any library interfaces can use C++ as well, but must do so "hermetically". That
@@ -125,12 +162,9 @@
    - initializer lists    
 
 
-
-
-
-
-* Crazy "bind" hack idea
-  LD_PRELOAD a library that rewrites bind to do the following:
-  1. Close the socket being bound to.
-  2. Communicate with Archon to get a pre-bound socket, IFF our process matches the rules. (Unix domain socket FD passing)
-  3. Received FD *Should* be the lowest un-used FD number.
+* Miscellaneous Ideas
+** Crazy "bind" hack idea
+   LD_PRELOAD a library that rewrites bind to do the following:
+   1. Close the socket being bound to.
+   2. Communicate with Archon to get a pre-bound socket, IFF our process matches the rules. (Unix domain socket FD passing)
+   3. Received FD *Should* be the lowest un-used FD number.
