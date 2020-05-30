@@ -1,0 +1,3 @@
+This is a fork of FreeBSD's init.
+
+Instead of launching RC, it launches our supervisor, then we launch RC, after becoming the reaper.
