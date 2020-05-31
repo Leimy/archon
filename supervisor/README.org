@@ -123,7 +123,7 @@ Check out pid 1 though.
   '("cc-mode"
     (c-offsets-alist . ((innamespace . [0])))))
 
-(c-add-style "archon-cc-mode" my-cc-style)
+(c-add-style "archon-cc-mode" archon-cc-style)
 #+END_SRC
    I assume if you're using emacs, you know where to put that.
 
