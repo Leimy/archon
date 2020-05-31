@@ -4,13 +4,16 @@
 #define ARCHON_UTIL_H_
 
 #include <utility>
+#include <string>
+#include <type_traits>
+#include <variant>
 
 namespace archon {
 
 /*! 
   Move-only object wrapping a callable entity we wish to run upon exiting scope.
   Can only be called 1 time, then it automatically disarms. This was inspired by
-  Google Fuchsia's FBL auto_call.h interface.
+  (perhaps a blatant ripoff of) Google Fuchsia's FBL auto_call.h interface.
 */
 
 template <typename T>
@@ -56,8 +59,6 @@ template <typename T>
 inline OnExitScopeCall<T> MakeOnExitScopeCall(T c) {
     return OnExitScopeCall<T>(std::move(c));
 }
-
 } // namespace archon
-
 
 #endif // ARCHON_UTIL_H_
