@@ -1,5 +1,5 @@
 #+TITLE: Supervisor Overview
-#+DATE: [2020-05-30 Sat 16:27]
+#+DATE: [2020-05-31 Sun 17:59]
 
 * Current Status
 ** Forked init to archon_init
@@ -31,6 +31,23 @@ Get a boot prompt
 #+BEGIN_SRC shell
 set init_exec=<path_to_your_archon_checkout>/init/archon_init
 #+END_SRC
+
+I have no build system at this point for the supervisor, but it's all
+one file, and it doesn't do much yet either.
+
+If you want to try it:
+#+BEGIN_SRC shell
+cd archon/supervisor
+clang++ -std=c++17 -static supervisor.cpp -o supervisor
+#+END_SRC
+
+At the boot prompt do both:
+#+BEGIN_SRC shell
+set supervisor=<path_to_your_archon_checkout>/supervisor/supervisor
+set init_exec=<path_to_your_archon_checkout>/init/archon_init
+#+END_SRC
+
+and then boot. The supervisor will launch RC, and finish booting the system.
 
 You should notice NOTHING DIFFERENT so far, which is success!
 
