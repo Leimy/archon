@@ -1,1 +1,1 @@
-init.full: /usr/lib/libc.a
+archon_init.full: /usr/lib/libc.a

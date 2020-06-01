@@ -201,7 +201,7 @@ static DB *session_db;
  * Default to rc, but allow a supervisory process
  * to replace this.
  */
-char runcom_path[sizeof(_PATH_RUNCOM)] = _PATH_RUNCOM;
+char *runcom_path;
 
 /*
  * The mother of all processes.
@@ -274,14 +274,14 @@ invalid:
 	 * Create an initial session.
 	 */
 	if (setsid() < 0 && (errno != EPERM || getsid(0) != 1))
-		warning("initial setsid() failed: %m");
+		warning("(archon) initial setsid() failed: %m");
 
 	/*
 	 * Establish an initial user so that programs running
 	 * single user do not freak out and die (like passwd).
 	 */
 	if (setlogin("root") < 0)
-		warning("setlogin() failed: %m");
+		warning("(archon) setlogin() failed: %m");
 
 	/*
 	 * This code assumes that we always get arguments through flags,
@@ -302,12 +302,12 @@ invalid:
 			initial_transition = reroot_phase_two;
 			break;
 		default:
-			warning("unrecognized flag '-%c'", c);
+			warning("(archon) unrecognized flag '-%c'", c);
 			break;
 		}
 
 	if (optind != argc)
-		warning("ignoring excess arguments");
+		warning("(archon) ignoring excess arguments");
 
 	/*
 	 * We catch or block signals rather than ignore them,
@@ -338,7 +338,10 @@ invalid:
 	close(2);
 
 	if (kenv(KENV_GET, "supervisor", kenv_value, sizeof(kenv_value)) > 0) {
-		strlcpy(runcom_path, kenv_value, sizeof(_PATH_RUNCOM));
+		warning("(archon) supervisor is: %s", kenv_value);
+		runcom_path = strdup(kenv_value);
+	} else {
+		runcom_path = strdup(_PATH_RUNCOM);
 	}
 
 	if (kenv(KENV_GET, "init_script", kenv_value, sizeof(kenv_value)) > 0) {
@@ -350,7 +353,7 @@ invalid:
 
 	if (kenv(KENV_GET, "init_chroot", kenv_value, sizeof(kenv_value)) > 0) {
 		if (chdir(kenv_value) != 0 || chroot(".") != 0)
-			warning("Can't chroot to %s: %m", kenv_value);
+			warning("(archon) Can't chroot to %s: %m", kenv_value);
 	}
 
 	/*
@@ -365,7 +368,7 @@ invalid:
 		stat("/", &stst);
 		root_devno = stst.st_dev;
 		if (stat("/dev", &stst) != 0)
-			warning("Can't stat /dev: %m");
+			warning("(archon) Can't stat /dev: %m");
 		else if (stst.st_dev == root_devno)
 			devfs++;
 	}
@@ -413,7 +416,7 @@ invalid:
 		 */
 		error = unmount(_PATH_REROOT, MNT_FORCE);
 		if (error != 0 && errno != EINVAL)
-			warning("Cannot unmount %s: %m", _PATH_REROOT);
+			warning("(archon) Cannot unmount %s: %m", _PATH_REROOT);
 	}
 
 	/*
@@ -534,7 +537,7 @@ static void
 disaster(int sig)
 {
 
-	emergency("fatal signal: %s",
+	emergency("(archon) fatal signal: %s",
 	    (unsigned)sig < NSIG ? sys_siglist[sig] : "unknown signal");
 
 	sleep(STALL_TIMEOUT);
@@ -555,7 +558,7 @@ getsecuritylevel(void)
 	name[1] = KERN_SECURELVL;
 	len = sizeof curlevel;
 	if (sysctl(name, 2, &curlevel, &len, NULL, 0) == -1) {
-		emergency("cannot get kernel security level: %s",
+		emergency("(archon) cannot get kernel security level: %s",
 		    strerror(errno));
 		return (-1);
 	}
@@ -581,12 +584,12 @@ setsecuritylevel(int newlevel)
 	name[1] = KERN_SECURELVL;
 	if (sysctl(name, 2, NULL, NULL, &newlevel, sizeof newlevel) == -1) {
 		emergency(
-		    "cannot change kernel security level from %d to %d: %s",
+		    "(archon) cannot change kernel security level from %d to %d: %s",
 		    curlevel, newlevel, strerror(errno));
 		return;
 	}
 #ifdef SECURE
-	warning("kernel security level changed from %d to %d",
+	warning("(archon) kernel security level changed from %d to %d",
 	    curlevel, newlevel);
 #endif
 #endif
@@ -628,7 +631,7 @@ open_console(void)
 
 	/* No luck.  Log output to file if possible. */
 	if ((fd = open(_PATH_DEVNULL, O_RDWR)) == -1) {
-		stall("cannot open null device.");
+		stall("(archon) cannot open null device.");
 		_exit(1);
 	}
 	if (fd != STDIN_FILENO) {
@@ -674,13 +677,13 @@ read_file(const char *path, void **bufp, size_t *bufsizep)
 
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
-		emergency("%s: %s", path, strerror(errno));
+		emergency("(archon) %s: %s", path, strerror(errno));
 		return (-1);
 	}
 
 	error = fstat(fd, &sb);
 	if (error != 0) {
-		emergency("fstat: %s", strerror(errno));
+		emergency("(archon) fstat: %s", strerror(errno));
 		close(fd);
 		return (error);
 	}
@@ -688,14 +691,14 @@ read_file(const char *path, void **bufp, size_t *bufsizep)
 	bufsize = sb.st_size;
 	buf = malloc(bufsize);
 	if (buf == NULL) {
-		emergency("malloc: %s", strerror(errno));
+		emergency("(archon) malloc: %s", strerror(errno));
 		close(fd);
 		return (error);
 	}
 
 	nbytes = read(fd, buf, bufsize);
 	if (nbytes != (ssize_t)bufsize) {
-		emergency("read: %s", strerror(errno));
+		emergency("(archon) read: %s", strerror(errno));
 		close(fd);
 		free(buf);
 		return (error);
@@ -703,7 +706,7 @@ read_file(const char *path, void **bufp, size_t *bufsizep)
 
 	error = close(fd);
 	if (error != 0) {
-		emergency("close: %s", strerror(errno));
+		emergency("(archon) close: %s", strerror(errno));
 		free(buf);
 		return (error);
 	}
@@ -722,20 +725,20 @@ create_file(const char *path, const void *buf, size_t bufsize)
 
 	fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0700);
 	if (fd < 0) {
-		emergency("%s: %s", path, strerror(errno));
+		emergency("(archon) %s: %s", path, strerror(errno));
 		return (-1);
 	}
 
 	nbytes = write(fd, buf, bufsize);
 	if (nbytes != (ssize_t)bufsize) {
-		emergency("write: %s", strerror(errno));
+		emergency("(archon) write: %s", strerror(errno));
 		close(fd);
 		return (-1);
 	}
 
 	error = close(fd);
 	if (error != 0) {
-		emergency("close: %s", strerror(errno));
+		emergency("(archon) close: %s", strerror(errno));
 		return (-1);
 	}
 
@@ -762,10 +765,10 @@ mount_tmpfs(const char *fspath)
 	error = nmount(iov, iovlen, 0);
 	if (error != 0) {
 		if (*errmsg != '\0') {
-			emergency("cannot mount tmpfs on %s: %s: %s",
+			emergency("(archon) cannot mount tmpfs on %s: %s: %s",
 			    fspath, errmsg, strerror(errno));
 		} else {
-			emergency("cannot mount tmpfs on %s: %s",
+			emergency("(archon) cannot mount tmpfs on %s: %s",
 			    fspath, strerror(errno));
 		}
 		return (error);
@@ -793,7 +796,7 @@ reroot(void)
 	 */
 	error = kill(-1, SIGKILL);
 	if (error != 0 && errno != ESRCH) {
-		emergency("kill(2) failed: %s", strerror(errno));
+		emergency("(archon) kill(2) failed: %s", strerror(errno));
 		goto out;
 	}
 
@@ -815,10 +818,10 @@ reroot(void)
 	 * Execute the temporary init.
 	 */
 	execl(_PATH_REROOT_INIT, _PATH_REROOT_INIT, "-r", NULL);
-	emergency("cannot exec %s: %s", _PATH_REROOT_INIT, strerror(errno));
+	emergency("(archon) cannot exec %s: %s", _PATH_REROOT_INIT, strerror(errno));
 
 out:
-	emergency("reroot failed; going to single user mode");
+	emergency("(archon) reroot failed; going to single user mode");
 	free(buf);
 	return (state_func_t) single_user;
 }
@@ -835,7 +838,7 @@ reroot_phase_two(void)
 	 */
 	error = reboot(RB_REROOT);
 	if (error != 0) {
-		emergency("RB_REBOOT failed: %s", strerror(errno));
+		emergency("(archon) RB_REBOOT failed: %s", strerror(errno));
 		goto out;
 	}
 
@@ -852,7 +855,7 @@ reroot_phase_two(void)
 		error = sysctlbyname("kern.init_path",
 		    init_path, &init_path_len, NULL, 0);
 		if (error != 0) {
-			emergency("failed to retrieve kern.init_path: %s",
+			emergency("(archon) failed to retrieve kern.init_path: %s",
 			    strerror(errno));
 			goto out;
 		}
@@ -868,10 +871,10 @@ reroot_phase_two(void)
 		 */
 		execl(path, path, NULL);
 	}
-	emergency("cannot exec init from %s: %s", init_path, strerror(errno));
+	emergency("(archon) cannot exec init from %s: %s", init_path, strerror(errno));
 
 out:
-	emergency("reroot failed; going to single user mode");
+	emergency("(archon) reroot failed; going to single user mode");
 	return (state_func_t) single_user;
 }
 
@@ -902,11 +905,11 @@ single_user(void)
 		/* Instead of going single user, let's reboot the machine */
 		sync();
 		if (reboot(howto) == -1) {
-			emergency("reboot(%#x) failed, %s", howto,
+			emergency("(archon) reboot(%#x) failed, %s", howto,
 			    strerror(errno));
 			_exit(1); /* panic and reboot */
 		}
-		warning("reboot(%#x) returned", howto);
+		warning("(archon) reboot(%#x) returned", howto);
 		_exit(0); /* panic as well */
 	}
 
@@ -938,7 +941,7 @@ single_user(void)
 				if (password != NULL &&
 				    strcmp(password, pp->pw_passwd) == 0)
 					break;
-				warning("single-user login failed\n");
+				warning("(archon) single-user login failed\n");
 			}
 		}
 		endttyent();
@@ -981,9 +984,9 @@ single_user(void)
 		argv[0] = name;
 		argv[1] = NULL;
 		execv(shell, argv);
-		emergency("can't exec %s for single user: %m", shell);
+		emergency("(archon) can't exec %s for single user: %m", shell);
 		execv(_PATH_BSHELL, argv);
-		emergency("can't exec %s for single user: %m", _PATH_BSHELL);
+		emergency("(archon) can't exec %s for single user: %m", _PATH_BSHELL);
 		sleep(STALL_TIMEOUT);
 		_exit(1);
 	}
@@ -992,7 +995,7 @@ single_user(void)
 		/*
 		 * We are seriously hosed.  Do our best.
 		 */
-		emergency("can't fork single-user shell, trying again");
+		emergency("(archon) can't fork single-user shell, trying again");
 		while (waitpid(-1, (int *) 0, WNOHANG) > 0)
 			continue;
 		return (state_func_t) single_user;
@@ -1005,11 +1008,11 @@ single_user(void)
 		if (wpid == -1) {
 			if (errno == EINTR)
 				continue;
-			warning("wait for single-user shell failed: %m; restarting");
+			warning("(archon) wait for single-user shell failed: %m; restarting");
 			return (state_func_t) single_user;
 		}
 		if (wpid == pid && WIFSTOPPED(status)) {
-			warning("init: shell stopped, restarting\n");
+			warning("(archon) init: shell stopped, restarting\n");
 			kill(pid, SIGCONT);
 			wpid = -1;
 		}
@@ -1023,7 +1026,7 @@ single_user(void)
 			/*
 			 *  reboot(8) killed shell?
 			 */
-			warning("single user shell terminated.");
+			warning("(archon) single user shell terminated.");
 			gettimeofday(&tv, NULL);
 			tn = tv;
 			tv.tv_sec += STALL_TIMEOUT;
@@ -1034,7 +1037,7 @@ single_user(void)
 			}
 			_exit(0);
 		} else {
-			warning("single user shell terminated, restarting");
+			warning("(archon) single user shell terminated, restarting");
 			return (state_func_t) single_user;
 		}
 	}
@@ -1051,6 +1054,7 @@ runcom(void)
 {
 	state_func_t next_transition;
 
+	warning("(archon) runcom is: %s", runcom_path);
 	if ((next_transition = run_script(runcom_path)) != NULL)
 		return next_transition;
 
@@ -1088,14 +1092,14 @@ execute_script(char *argv[])
 	error = access(script, X_OK);
 	if (error == 0) {
 		execv(script, argv + 1);
-		warning("can't directly exec %s: %m", script);
+		warning("(archon) can't directly exec %s: %m", script);
 	} else if (errno != EACCES) {
-		warning("can't access %s: %m", script);
+		warning("(archon) can't access %s: %m", script);
 	}
 
 	shell = get_shell();
 	execv(shell, argv);
-	stall("can't exec %s for %s: %m", shell, script);
+	stall("(archon) can't exec %s for %s: %m", shell, script);
 }
 
 /*
@@ -1147,7 +1151,7 @@ run_script(const char *script)
 	}
 
 	if (pid == -1) {
-		emergency("can't fork for %s on %s: %m", shell, script);
+		emergency("(archon) can't fork for %s on %s: %m", shell, script);
 		while (waitpid(-1, (int *) 0, WNOHANG) > 0)
 			continue;
 		sleep(STALL_TIMEOUT);
@@ -1167,12 +1171,12 @@ run_script(const char *script)
 				return (state_func_t) requested_transition;
 			if (errno == EINTR)
 				continue;
-			warning("wait for %s on %s failed: %m; going to "
+			warning("(archon) wait for %s on %s failed: %m; going to "
 			    "single user mode", shell, script);
 			return (state_func_t) single_user;
 		}
 		if (wpid == pid && WIFSTOPPED(status)) {
-			warning("init: %s on %s stopped, restarting\n",
+			warning("(archon) init: %s on %s stopped, restarting\n",
 			    shell, script);
 			kill(pid, SIGCONT);
 			wpid = -1;
@@ -1190,7 +1194,7 @@ run_script(const char *script)
 	}
 
 	if (!WIFEXITED(status)) {
-		warning("%s on %s terminated abnormally, going to single "
+		warning("(archon) %s on %s terminated abnormally, going to single "
 		    "user mode", shell, script);
 		return (state_func_t) single_user;
 	}
@@ -1210,9 +1214,9 @@ static int
 start_session_db(void)
 {
 	if (session_db && (*session_db->close)(session_db))
-		emergency("session database close: %s", strerror(errno));
+		emergency("(archon) session database close: %s", strerror(errno));
 	if ((session_db = dbopen(NULL, O_RDWR, 0, DB_HASH, NULL)) == NULL) {
-		emergency("session database open: %s", strerror(errno));
+		emergency("(archon) session database open: %s", strerror(errno));
 		return (1);
 	}
 	return (0);
@@ -1234,7 +1238,7 @@ add_session(session_t *sp)
 	data.size = sizeof sp;
 
 	if ((*session_db->put)(session_db, &key, &data, 0))
-		emergency("insert %d: %s", sp->se_process, strerror(errno));
+		emergency("(archon) insert %d: %s", sp->se_process, strerror(errno));
 }
 
 /*
@@ -1249,7 +1253,7 @@ del_session(session_t *sp)
 	key.size = sizeof sp->se_process;
 
 	if ((*session_db->del)(session_db, &key, 0))
-		emergency("delete %d: %s", sp->se_process, strerror(errno));
+		emergency("(archon) delete %d: %s", sp->se_process, strerror(errno));
 }
 
 /*
@@ -1372,7 +1376,7 @@ setupargv(session_t *sp, struct ttyent *typ)
 	sp->se_getty_argv_space = strdup(sp->se_getty);
 	sp->se_getty_argv = construct_argv(sp->se_getty_argv_space);
 	if (sp->se_getty_argv == NULL) {
-		warning("can't parse getty for port %s", sp->se_device);
+		warning("(archon) can't parse getty for port %s", sp->se_device);
 		free(sp->se_getty);
 		free(sp->se_getty_argv_space);
 		sp->se_getty = sp->se_getty_argv_space = 0;
@@ -1390,7 +1394,7 @@ setupargv(session_t *sp, struct ttyent *typ)
 		sp->se_window_argv_space = strdup(sp->se_window);
 		sp->se_window_argv = construct_argv(sp->se_window_argv_space);
 		if (sp->se_window_argv == NULL) {
-			warning("can't parse window for port %s",
+			warning("(archon) can't parse window for port %s",
 			    sp->se_device);
 			free(sp->se_window_argv_space);
 			free(sp->se_window);
@@ -1450,7 +1454,7 @@ start_window_system(session_t *sp)
 	int status;
 
 	if ((pid = fork()) == -1) {
-		emergency("can't fork for window system on port %s: %m",
+		emergency("(archon) can't fork for window system on port %s: %m",
 		    sp->se_device);
 		/* hope that getty fails and we can try again */
 		return;
@@ -1462,7 +1466,7 @@ start_window_system(session_t *sp)
 
 	/* reparent window process to the init to not make a zombie on exit */
 	if ((pid = fork()) == -1) {
-		emergency("can't fork for window system on port %s: %m",
+		emergency("(archon) can't fork for window system on port %s: %m",
 		    sp->se_device);
 		_exit(1);
 	}
@@ -1473,7 +1477,7 @@ start_window_system(session_t *sp)
 	sigprocmask(SIG_SETMASK, &mask, NULL);
 
 	if (setsid() < 0)
-		emergency("setsid failed (window) %m");
+		emergency("(archon) setsid failed (window) %m");
 
 #ifdef LOGIN_CAP
 	setprocresources(RESOURCE_WINDOW);
@@ -1488,7 +1492,7 @@ start_window_system(session_t *sp)
 	else
 		env[0] = NULL;
 	execve(sp->se_window_argv[0], sp->se_window_argv, env);
-	stall("can't exec window system '%s' for port %s: %m",
+	stall("(archon) can't exec window system '%s' for port %s: %m",
 		sp->se_window_argv[0], sp->se_device);
 	_exit(1);
 }
@@ -1518,7 +1522,7 @@ start_getty(session_t *sp)
 	 * fork(), not vfork() -- we can't afford to block.
 	 */
 	if ((pid = fork()) == -1) {
-		emergency("can't fork for getty on port %s: %m", sp->se_device);
+		emergency("(archon) can't fork for getty on port %s: %m", sp->se_device);
 		return -1;
 	}
 
@@ -1526,7 +1530,7 @@ start_getty(session_t *sp)
 		return pid;
 
 	if (too_quick) {
-		warning("getty repeating too quickly on port %s, sleeping %d secs",
+		warning("(archon) getty repeating too quickly on port %s, sleeping %d secs",
 		    sp->se_device, GETTY_SLEEP);
 		sleep((unsigned) GETTY_SLEEP);
 	}
@@ -1551,7 +1555,7 @@ start_getty(session_t *sp)
 	} else
 		env[0] = NULL;
 	execve(sp->se_getty_argv[0], sp->se_getty_argv, env);
-	stall("can't exec getty '%s' for port %s: %m",
+	stall("(archon) can't exec getty '%s' for port %s: %m",
 		sp->se_getty_argv[0], sp->se_device);
 	_exit(1);
 }
@@ -1746,7 +1750,7 @@ clean_ttys(void)
 			old_window = sp->se_window ? strdup(sp->se_window) : 0;
 			old_type = sp->se_type ? strdup(sp->se_type) : 0;
 			if (setupargv(sp, typ) == 0) {
-				warning("can't parse getty for port %s",
+				warning("(archon) can't parse getty for port %s",
 					sp->se_device);
 				sp->se_flags |= SE_SHUTDOWN;
 				kill(sp->se_process, SIGHUP);
@@ -1881,7 +1885,7 @@ death_single(void)
 			return (state_func_t) single_user;
 	}
 
-	warning("some processes would not die; ps axl advised");
+	warning("(archon) some processes would not die; ps axl advised");
 
 	return (state_func_t) single_user;
 }
@@ -1936,13 +1940,13 @@ runshutdown(void)
 		argv[1] = _path_rundown;
 		argv[2] = Reboot ? _reboot : _single;
 		argv[3] = NULL;
-		
+
 		execute_script(argv);
 		_exit(1);	/* force single user mode */
 	}
 
 	if (pid == -1) {
-		emergency("can't fork for %s: %m", _PATH_RUNDOWN);
+		emergency("(archon) can't fork for %s: %m", _PATH_RUNDOWN);
 		while (waitpid(-1, (int *) 0, WNOHANG) > 0)
 			continue;
 		sleep(STALL_TIMEOUT);
@@ -1965,19 +1969,19 @@ runshutdown(void)
 		if (clang == 1) {
 			/* we were waiting for the sub-shell */
 			kill(wpid, SIGTERM);
-			warning("timeout expired for %s: %m; going to "
+			warning("(archon) timeout expired for %s: %m; going to "
 			    "single user mode", _PATH_RUNDOWN);
 			return -1;
 		}
 		if (wpid == -1) {
 			if (errno == EINTR)
 				continue;
-			warning("wait for %s failed: %m; going to "
+			warning("(archon) wait for %s failed: %m; going to "
 			    "single user mode", _PATH_RUNDOWN);
 			return -1;
 		}
 		if (wpid == pid && WIFSTOPPED(status)) {
-			warning("init: %s stopped, restarting\n",
+			warning("(archon) init: %s stopped, restarting\n",
 			    _PATH_RUNDOWN);
 			kill(pid, SIGCONT);
 			wpid = -1;
@@ -2001,13 +2005,13 @@ runshutdown(void)
 	}
 
 	if (!WIFEXITED(status)) {
-		warning("%s terminated abnormally, going to "
+		warning("(arhcon) %s terminated abnormally, going to "
 		    "single user mode", _PATH_RUNDOWN);
 		return -2;
 	}
 
 	if ((status = WEXITSTATUS(status)) != 0)
-		warning("%s returned status %d", _PATH_RUNDOWN, status);
+		warning("(archon) %s returned status %d", _PATH_RUNDOWN, status);
 
 	return status;
 }

@@ -147,7 +147,7 @@ run_rc(const char* script) {
 	char _sh[] = "sh";
 	char _autoboot[] = "autoboot";
 
-        argv[0] = "sh";
+        argv[0] = _sh;
 	argv[1] = __DECONST(char *, script);
 	argv[2] = runcom_mode == AUTOBOOT ? _autoboot : 0;
 	argv[3] = NULL;
